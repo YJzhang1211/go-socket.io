@@ -1,6 +1,7 @@
 package socketio
 
 import (
+	"errors"
 	"net/http"
 	"reflect"
 
@@ -216,8 +217,8 @@ func (s *Server) serveError(c *conn) {
 		case <-c.quitChan:
 			return
 		case err := <-c.errorChan:
-			errMsg, ok := err.(errorMessage)
-			if !ok {
+			var errMsg *errorMessage
+			if !errors.As(err, &errMsg) {
 				continue
 			}
 
