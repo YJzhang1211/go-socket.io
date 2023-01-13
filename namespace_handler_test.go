@@ -23,7 +23,7 @@ func TestNamespaceHandler(t *testing.T) {
 	})
 
 	disconnectMsg := ""
-	h.OnDisconnect(func(c Conn, reason string) {
+	h.OnDisconnect(func(c Conn, reason string, details map[string]interface{}) {
 		disconnectMsg = reason
 	})
 

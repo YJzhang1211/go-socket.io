@@ -54,7 +54,7 @@ func (s *Server) OnConnect(namespace string, f func(Conn, map[string]interface{}
 }
 
 // OnDisconnect set a handler function f to handle disconnect event for namespace.
-func (s *Server) OnDisconnect(namespace string, f func(Conn, string)) {
+func (s *Server) OnDisconnect(namespace string, f func(Conn, string, map[string]interface{})) {
 	h := s.getNamespace(namespace)
 	if h == nil {
 		h = s.createNamespace(namespace)

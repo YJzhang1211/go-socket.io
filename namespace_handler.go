@@ -16,7 +16,7 @@ type namespaceHandler struct {
 	eventsLock sync.RWMutex
 
 	onConnect    func(conn Conn, req map[string]interface{}) error
-	onDisconnect func(conn Conn, msg string)
+	onDisconnect func(conn Conn, msg string, details map[string]interface{})
 	onError      func(conn Conn, err error)
 }
 
@@ -39,7 +39,7 @@ func (nh *namespaceHandler) OnConnect(f func(Conn, map[string]interface{}) error
 	nh.onConnect = f
 }
 
-func (nh *namespaceHandler) OnDisconnect(f func(Conn, string)) {
+func (nh *namespaceHandler) OnDisconnect(f func(Conn, string, map[string]interface{})) {
 	nh.onDisconnect = f
 }
 
@@ -76,7 +76,8 @@ func (nh *namespaceHandler) dispatch(conn Conn, header parser.Header, args ...re
 
 	case parser.Disconnect:
 		if nh.onDisconnect != nil {
-			nh.onDisconnect(conn, getDispatchMessage(args...))
+			reason, details := getDispatchDisconnectData(args...)
+			nh.onDisconnect(conn, reason, details)
 		}
 		return nil, nil
 
@@ -103,6 +104,17 @@ func (nh *namespaceHandler) dispatchEvent(conn Conn, event string, args ...refle
 	}
 
 	return namespaceHandler.Call(append([]reflect.Value{reflect.ValueOf(conn)}, args...))
+}
+
+func getDispatchDisconnectData(args ...reflect.Value) (reason string, details map[string]interface{}) {
+	if len(args) > 0 {
+		reason = args[0].Interface().(string)
+	}
+	if len(args) > 1 {
+		details = args[0].Interface().(map[string]interface{})
+	}
+
+	return
 }
 
 func getDispatchMessage(args ...reflect.Value) string {

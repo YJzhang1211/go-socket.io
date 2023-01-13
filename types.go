@@ -20,5 +20,6 @@ const (
 type readHandler func(c *conn, header parser.Header) error
 
 var (
-	defaultHeaderType = []reflect.Type{reflect.TypeOf(make(map[string]interface{}))}
+	defaultHeaderType    = []reflect.Type{reflect.TypeOf(make(map[string]interface{}))}
+	disconnectHeaderType = []reflect.Type{reflect.TypeOf(""), reflect.TypeOf(make(map[string]interface{}))}
 )

@@ -91,7 +91,7 @@ func connectPacketHandler(c *conn, header parser.Header) error {
 }
 
 func disconnectPacketHandler(c *conn, header parser.Header) error {
-	args, err := c.decoder.DecodeArgs(defaultHeaderType)
+	args, err := c.decoder.DecodeArgs(disconnectHeaderType)
 	if err != nil {
 		c.onError(header.Namespace, err)
 		return errDecodeArgs

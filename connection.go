@@ -64,7 +64,7 @@ func (c *conn) Close() error {
 			nc.LeaveAll()
 
 			if nh, _ := c.handlers.Get(ns); nh != nil && nh.onDisconnect != nil {
-				nh.onDisconnect(nc, clientDisconnectMsg)
+				nh.onDisconnect(nc, clientDisconnectMsg, nil)
 			}
 		})
 		err = c.Conn.Close()
