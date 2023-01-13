@@ -111,7 +111,7 @@ func getDispatchDisconnectData(args ...reflect.Value) (reason string, details ma
 		reason = args[0].Interface().(string)
 	}
 	if len(args) > 1 {
-		details = args[0].Interface().(map[string]interface{})
+		details = args[1].Interface().(map[string]interface{})
 	}
 
 	return
