@@ -1,24 +1,20 @@
 package socketio
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
-	"github.com/go-redis/redis/v8"
-	"github.com/vchitai/go-socket.io/v4/logger"
+	"github.com/gomodule/redigo/redis"
 )
 
-var _ Broadcast = &redisV8Broadcast{}
-
-// redisV8Broadcast gives Join, Leave & BroadcastTO server API support to socket.io along with room management
+// redisBroadcast gives Join, Leave & BroadcastTO server API support to socket.io along with room management
 // map of rooms where each room contains a map of connection id to connections in that room
-type redisV8Broadcast struct {
-	pub *redis.Client
-	sub *redis.PubSub
+type redisBroadcast struct {
+	pub *redis.PubSubConn
+	sub *redis.PubSubConn
 
 	nsp        string
 	uid        string
@@ -45,11 +41,11 @@ type roomLenRequest struct {
 	RequestType string
 	RequestID   string
 	Room        string
-	numSub      int
-	msgCount    int
-	connections int
-	mutex       sync.Mutex
-	done        chan bool
+	numSub      int        `json:"-"`
+	msgCount    int        `json:"-"`
+	connections int        `json:"-"`
+	mutex       sync.Mutex `json:"-"`
+	done        chan bool  `json:"-"`
 }
 
 type clearRoomRequest struct {
@@ -62,11 +58,11 @@ type clearRoomRequest struct {
 type allRoomRequest struct {
 	RequestType string
 	RequestID   string
-	rooms       map[string]bool
-	numSub      int
-	msgCount    int
-	mutex       sync.Mutex
-	done        chan bool
+	rooms       map[string]bool `json:"-"`
+	numSub      int             `json:"-"`
+	msgCount    int             `json:"-"`
+	mutex       sync.Mutex      `json:"-"`
+	done        chan bool       `json:"-"`
 }
 
 // response struct
@@ -82,28 +78,36 @@ type allRoomResponse struct {
 	Rooms       []string
 }
 
-func newRedisV8Broadcast(ctx context.Context, nsp string, opts *RedisAdapterOptions) (*redisV8Broadcast, error) {
-	redisOpts := &redis.Options{
-		Addr:     opts.getAddr(),
-		Network:  opts.Network,
-		Password: opts.Password,
-		DB:       opts.DB,
+func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, error) {
+	addr := opts.getAddr()
+	var redisOpts []redis.DialOption
+	if len(opts.Password) > 0 {
+		redisOpts = append(redisOpts, redis.DialPassword(opts.Password))
 	}
 
-	redisConn := redis.NewClient(redisOpts)
-	err := redisConn.Ping(ctx).Err()
+	pub, err := redis.Dial(opts.Network, addr, redisOpts...)
 	if err != nil {
 		return nil, err
 	}
 
-	subConn := redisConn.PSubscribe(ctx, fmt.Sprintf("%s#%s#*", opts.Prefix, nsp))
+	sub, err := redis.Dial(opts.Network, addr, redisOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	subConn := &redis.PubSubConn{Conn: sub}
+	pubConn := &redis.PubSubConn{Conn: pub}
+
+	if err = subConn.PSubscribe(fmt.Sprintf("%s#%s#*", opts.Prefix, nsp)); err != nil {
+		return nil, err
+	}
 
 	uid := newV4UUID()
-	rbc := &redisV8Broadcast{
+	rbc := &redisBroadcast{
 		rooms:      make(map[string]map[string]Conn),
 		requests:   make(map[string]interface{}),
 		sub:        subConn,
-		pub:        redisConn,
+		pub:        pubConn,
 		key:        fmt.Sprintf("%s#%s#%s", opts.Prefix, nsp, uid),
 		reqChannel: fmt.Sprintf("%s-request#%s", opts.Prefix, nsp),
 		resChannel: fmt.Sprintf("%s-response#%s", opts.Prefix, nsp),
@@ -111,7 +115,7 @@ func newRedisV8Broadcast(ctx context.Context, nsp string, opts *RedisAdapterOpti
 		uid:        uid,
 	}
 
-	if err = subConn.Subscribe(ctx, rbc.reqChannel, rbc.resChannel); err != nil {
+	if err = subConn.Subscribe(rbc.reqChannel, rbc.resChannel); err != nil {
 		return nil, err
 	}
 
@@ -120,8 +124,8 @@ func newRedisV8Broadcast(ctx context.Context, nsp string, opts *RedisAdapterOpti
 	return rbc, nil
 }
 
-// AllRooms gives list of all rooms available for redisV8Broadcast.
-func (bc *redisV8Broadcast) AllRooms() []string {
+// AllRooms gives list of all rooms available for redisBroadcast.
+func (bc *redisBroadcast) AllRooms() []string {
 	req := allRoomRequest{
 		RequestType: allRoomReqType,
 		RequestID:   newV4UUID(),
@@ -134,8 +138,7 @@ func (bc *redisV8Broadcast) AllRooms() []string {
 	req.done = make(chan bool, 1)
 
 	bc.requests[req.RequestID] = &req
-	ctx := context.TODO()
-	err := bc.pub.Publish(ctx, bc.reqChannel, reqJSON).Err()
+	_, err := bc.pub.Conn.Do("PUBLISH", bc.reqChannel, reqJSON)
 	if err != nil {
 		return []string{} // if error occurred,return empty
 	}
@@ -151,8 +154,8 @@ func (bc *redisV8Broadcast) AllRooms() []string {
 	return rooms
 }
 
-// Join joins the given connection to the redisV8Broadcast room.
-func (bc *redisV8Broadcast) Join(room string, connection Conn) {
+// Join joins the given connection to the redisBroadcast room.
+func (bc *redisBroadcast) Join(room string, connection Conn) {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
 
@@ -164,7 +167,7 @@ func (bc *redisV8Broadcast) Join(room string, connection Conn) {
 }
 
 // Leave leaves the given connection from given room (if exist)
-func (bc *redisV8Broadcast) Leave(room string, connection Conn) {
+func (bc *redisBroadcast) Leave(room string, connection Conn) {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
 
@@ -178,7 +181,7 @@ func (bc *redisV8Broadcast) Leave(room string, connection Conn) {
 }
 
 // LeaveAll leaves the given connection from all rooms.
-func (bc *redisV8Broadcast) LeaveAll(connection Conn) {
+func (bc *redisBroadcast) LeaveAll(connection Conn) {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
 
@@ -192,7 +195,7 @@ func (bc *redisV8Broadcast) LeaveAll(connection Conn) {
 }
 
 // Clear clears the room.
-func (bc *redisV8Broadcast) Clear(room string) {
+func (bc *redisBroadcast) Clear(room string) {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
 
@@ -201,7 +204,7 @@ func (bc *redisV8Broadcast) Clear(room string) {
 }
 
 // Send sends given event & args to all the connections in the specified room.
-func (bc *redisV8Broadcast) Send(room, event string, args ...interface{}) {
+func (bc *redisBroadcast) Send(room, event string, args ...interface{}) {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
 
@@ -216,7 +219,7 @@ func (bc *redisV8Broadcast) Send(room, event string, args ...interface{}) {
 }
 
 // SendAll sends given event & args to all the connections to all the rooms.
-func (bc *redisV8Broadcast) SendAll(event string, args ...interface{}) {
+func (bc *redisBroadcast) SendAll(event string, args ...interface{}) {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
 
@@ -228,8 +231,8 @@ func (bc *redisV8Broadcast) SendAll(event string, args ...interface{}) {
 	bc.publishMessage("", event, args...)
 }
 
-// ForEach sends data returned by DataFunc, if room does not exit, sends nothing.
-func (bc *redisV8Broadcast) ForEach(room string, f EachFunc) {
+// ForEach sends data returned by DataFunc, if room does not exits sends nothing.
+func (bc *redisBroadcast) ForEach(room string, f EachFunc) {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
 
@@ -244,7 +247,7 @@ func (bc *redisV8Broadcast) ForEach(room string, f EachFunc) {
 }
 
 // Len gives number of connections in the room.
-func (bc *redisV8Broadcast) Len(room string) int {
+func (bc *redisBroadcast) Len(room string) int {
 	req := roomLenRequest{
 		RequestType: roomLenReqType,
 		RequestID:   newV4UUID(),
@@ -266,8 +269,7 @@ func (bc *redisV8Broadcast) Len(room string) int {
 	req.done = make(chan bool, 1)
 
 	bc.requests[req.RequestID] = &req
-	ctx := context.TODO()
-	err = bc.pub.Publish(ctx, bc.reqChannel, reqJSON).Err()
+	_, err = bc.pub.Conn.Do("PUBLISH", bc.reqChannel, reqJSON)
 	if err != nil {
 		return -1
 	}
@@ -278,10 +280,10 @@ func (bc *redisV8Broadcast) Len(room string) int {
 	return req.connections
 }
 
-// Rooms gives the list of all the rooms available for redisV8Broadcast in case of
+// Rooms gives the list of all the rooms available for redisBroadcast in case of
 // no connection is given, in case of a connection is given, it gives
 // list of all the rooms the connection is joined to.
-func (bc *redisV8Broadcast) Rooms(connection Conn) []string {
+func (bc *redisBroadcast) Rooms(connection Conn) []string {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
 
@@ -292,7 +294,7 @@ func (bc *redisV8Broadcast) Rooms(connection Conn) []string {
 	return bc.getRoomsByConn(connection)
 }
 
-func (bc *redisV8Broadcast) onMessage(channel string, msg []byte) error {
+func (bc *redisBroadcast) onMessage(channel string, msg []byte) error {
 	channelParts := strings.Split(channel, "#")
 	nsp := channelParts[len(channelParts)-2]
 	if bc.nsp != nsp {
@@ -333,18 +335,21 @@ func (bc *redisV8Broadcast) onMessage(channel string, msg []byte) error {
 }
 
 // Get the number of subscribers of a channel.
-func (bc *redisV8Broadcast) getNumSub(channel string) (int, error) {
-	ctx := context.TODO()
-	rs, err := bc.pub.PubSubNumSub(ctx, channel).Result()
+func (bc *redisBroadcast) getNumSub(channel string) (int, error) {
+	rs, err := bc.pub.Conn.Do("PUBSUB", "NUMSUB", channel)
 	if err != nil {
 		return 0, err
 	}
 
-	return int(rs[channel]), nil
+	numSub64, ok := rs.([]interface{})[1].(int64)
+	if !ok {
+		return 0, errors.New("redis reply cast to int error")
+	}
+	return int(numSub64), nil
 }
 
 // Handle request from redis channel.
-func (bc *redisV8Broadcast) onRequest(msg []byte) {
+func (bc *redisBroadcast) onRequest(msg []byte) {
 	var req map[string]string
 
 	if err := json.Unmarshal(msg, &req); err != nil {
@@ -379,21 +384,20 @@ func (bc *redisV8Broadcast) onRequest(msg []byte) {
 	}
 }
 
-func (bc *redisV8Broadcast) publish(channel string, msg interface{}) {
+func (bc *redisBroadcast) publish(channel string, msg interface{}) {
 	resJSON, err := json.Marshal(msg)
 	if err != nil {
 		return
 	}
 
-	ctx := context.TODO()
-	err = bc.pub.Publish(ctx, channel, resJSON).Err()
+	_, err = bc.pub.Conn.Do("PUBLISH", channel, resJSON)
 	if err != nil {
 		return
 	}
 }
 
 // Handle response from redis channel.
-func (bc *redisV8Broadcast) onResponse(msg []byte) {
+func (bc *redisBroadcast) onResponse(msg []byte) {
 	var res map[string]interface{}
 
 	err := json.Unmarshal(msg, &res)
@@ -442,7 +446,7 @@ func (bc *redisV8Broadcast) onResponse(msg []byte) {
 	}
 }
 
-func (bc *redisV8Broadcast) publishClear(room string) {
+func (bc *redisBroadcast) publishClear(room string) {
 	req := clearRoomRequest{
 		RequestType: clearRoomReqType,
 		RequestID:   newV4UUID(),
@@ -453,14 +457,14 @@ func (bc *redisV8Broadcast) publishClear(room string) {
 	bc.publish(bc.reqChannel, &req)
 }
 
-func (bc *redisV8Broadcast) clear(room string) {
+func (bc *redisBroadcast) clear(room string) {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
 
 	delete(bc.rooms, room)
 }
 
-func (bc *redisV8Broadcast) send(room string, event string, args ...interface{}) {
+func (bc *redisBroadcast) send(room string, event string, args ...interface{}) {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
 
@@ -474,7 +478,7 @@ func (bc *redisV8Broadcast) send(room string, event string, args ...interface{})
 	}
 }
 
-func (bc *redisV8Broadcast) publishMessage(room string, event string, args ...interface{}) {
+func (bc *redisBroadcast) publishMessage(room string, event string, args ...interface{}) {
 	opts := make([]interface{}, 2)
 	opts[0] = room
 	opts[1] = event
@@ -488,14 +492,13 @@ func (bc *redisV8Broadcast) publishMessage(room string, event string, args ...in
 		return
 	}
 
-	ctx := context.TODO()
-	err = bc.pub.Publish(ctx, bc.key, bcMessageJSON).Err()
+	_, err = bc.pub.Conn.Do("PUBLISH", bc.key, bcMessageJSON)
 	if err != nil {
 		return
 	}
 }
 
-func (bc *redisV8Broadcast) sendAll(event string, args ...interface{}) {
+func (bc *redisBroadcast) sendAll(event string, args ...interface{}) {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
 
@@ -506,7 +509,7 @@ func (bc *redisV8Broadcast) sendAll(event string, args ...interface{}) {
 	}
 }
 
-func (bc *redisV8Broadcast) allRooms() []string {
+func (bc *redisBroadcast) allRooms() []string {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
 
@@ -518,7 +521,7 @@ func (bc *redisV8Broadcast) allRooms() []string {
 	return rooms
 }
 
-func (bc *redisV8Broadcast) getRoomsByConn(connection Conn) []string {
+func (bc *redisBroadcast) getRoomsByConn(connection Conn) []string {
 	var rooms []string
 
 	for room, connections := range bc.rooms {
@@ -530,26 +533,19 @@ func (bc *redisV8Broadcast) getRoomsByConn(connection Conn) []string {
 	return rooms
 }
 
-func (bc *redisV8Broadcast) dispatch() {
-	ll := logger.GetLogger("socketio.broadcast.redis")
-	ctx := context.TODO()
+func (bc *redisBroadcast) dispatch() {
 	for {
-		rs, err := bc.sub.Receive(ctx)
-		if err != nil {
-			ll.Error(err, "Receive from sub error")
-			return
-		}
-		switch m := rs.(type) {
+		switch m := bc.sub.Receive().(type) {
 		case redis.Message:
 			if m.Channel == bc.reqChannel {
-				bc.onRequest([]byte(m.Payload))
+				bc.onRequest(m.Data)
 				break
 			} else if m.Channel == bc.resChannel {
-				bc.onResponse([]byte(m.Payload))
+				bc.onResponse(m.Data)
 				break
 			}
 
-			err := bc.onMessage(m.Channel, []byte(m.Payload))
+			err := bc.onMessage(m.Channel, m.Data)
 			if err != nil {
 				return
 			}

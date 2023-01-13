@@ -1,7 +1,6 @@
 package socketio
 
 import (
-	"context"
 	"errors"
 	"reflect"
 	"sync"
@@ -25,8 +24,7 @@ func newNamespaceHandler(nsp string, adapterOpts *RedisAdapterOptions) *namespac
 	if adapterOpts == nil {
 		broadcast = newBroadcast()
 	} else {
-		ctx := context.TODO()
-		broadcast, _ = newRedisV8Broadcast(ctx, nsp, adapterOpts)
+		broadcast, _ = newRedisBroadcast(nsp, adapterOpts)
 	}
 
 	return &namespaceHandler{
