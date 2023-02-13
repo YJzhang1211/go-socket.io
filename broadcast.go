@@ -105,11 +105,17 @@ func (bc *broadcast) SendAll(event string, args ...interface{}) {
 }
 
 // ForEach sends data returned by DataFunc, if room does not exits sends nothing
-func (bc *broadcast) ForEach(room string, f EachFunc) {
+func (bc *broadcast) getOccupants(room string) (map[string]Conn, bool) {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
 
 	occupants, ok := bc.rooms[room]
+	return occupants, ok
+}
+
+// ForEach sends data returned by DataFunc, if room does not exits sends nothing
+func (bc *broadcast) ForEach(room string, f EachFunc) {
+	occupants, ok := bc.getOccupants(room)
 	if !ok {
 		return
 	}
