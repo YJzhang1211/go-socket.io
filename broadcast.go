@@ -104,7 +104,7 @@ func (bc *broadcast) SendAll(event string, args ...interface{}) {
 	}
 }
 
-// ForEach sends data returned by DataFunc, if room does not exits sends nothing
+// getOccupants return all occupants of a room
 func (bc *broadcast) getOccupants(room string) (map[string]Conn, bool) {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()

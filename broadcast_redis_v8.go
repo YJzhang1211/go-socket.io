@@ -231,12 +231,18 @@ func (bc *redisBroadcast) SendAll(event string, args ...interface{}) {
 	bc.publishMessage("", event, args...)
 }
 
-// ForEach sends data returned by DataFunc, if room does not exits sends nothing.
-func (bc *redisBroadcast) ForEach(room string, f EachFunc) {
+// getOccupants return all occupants of a room
+func (bc *redisBroadcast) getOccupants(room string) (map[string]Conn, bool) {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
 
 	occupants, ok := bc.rooms[room]
+	return occupants, ok
+}
+
+// ForEach sends data returned by DataFunc, if room does not exits sends nothing.
+func (bc *redisBroadcast) ForEach(room string, f EachFunc) {
+	occupants, ok := bc.getOccupants(room)
 	if !ok {
 		return
 	}
