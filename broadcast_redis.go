@@ -3,13 +3,13 @@ package socketio
 // redisBroadcast gives Join, Leave & BroadcastTO server API support to socket.io along with room management
 // map of rooms where each room contains a map of connection id to connections in that room
 type redisBroadcast struct {
-	remote *redisBroadcastRemote
+	remote *redisBroadcastRemoteV8
 	local  *redisBroadcastLocal
 }
 
 func newRedisBroadcast(nsp string, opts *RedisAdapterOptions) (*redisBroadcast, error) {
 	rbcLocal := newRedisBroadcastLocal(nsp)
-	rbcRemote, err := newRedisBroadcastRemote(nsp, opts, rbcLocal)
+	rbcRemote, err := newRedisBroadcastRemoteV8(nsp, opts, rbcLocal)
 	if err != nil {
 		return nil, err
 	}
