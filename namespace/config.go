@@ -1,7 +1,7 @@
-package socketio
+package namespace
 
-// RedisAdapterOptions is configuration to create new adapter
-type RedisAdapterOptions struct {
+// RedisAdapterConfig is configuration to create new adapter
+type RedisAdapterConfig struct {
 	Addr     string
 	Prefix   string
 	Network  string
@@ -9,20 +9,20 @@ type RedisAdapterOptions struct {
 	DB       int
 }
 
-func (ro *RedisAdapterOptions) getAddr() string {
-	return ro.Addr
+func (cfg *RedisAdapterConfig) getAddr() string {
+	return cfg.Addr
 }
 
-func defaultOptions() *RedisAdapterOptions {
-	return &RedisAdapterOptions{
+func defaultConfig() *RedisAdapterConfig {
+	return &RedisAdapterConfig{
 		Addr:    "127.0.0.1:6379",
 		Prefix:  "socket.io",
 		Network: "tcp",
 	}
 }
 
-func getOptions(opts *RedisAdapterOptions) *RedisAdapterOptions {
-	options := defaultOptions()
+func GetOptions(opts *RedisAdapterConfig) *RedisAdapterConfig {
+	options := defaultConfig()
 
 	if opts != nil {
 		if opts.Addr != "" {

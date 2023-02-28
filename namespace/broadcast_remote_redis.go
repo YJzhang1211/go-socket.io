@@ -1,4 +1,4 @@
-package socketio
+package namespace
 
 import (
 	"context"
@@ -6,14 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
-	redis "github.com/go-redis/redis/v8"
+	redis "github.com/redis/go-redis/v9"
 )
 
-func newRedisBroadcastRemoteV8(
-	nsp string, opts *RedisAdapterOptions,
-	rbcLocal *redisBroadcastLocal,
-) (*redisBroadcastRemoteV8, error) {
+func newRedisBroadcastRemoteV9(
+	nsp string, opts *RedisAdapterConfig,
+	rbcLocal *broadcastLocal,
+) (*redisBroadcastRemoteV9, error) {
 	addr := opts.getAddr()
 	redisOpts := &redis.Options{
 		Addr:     addr,
@@ -30,7 +31,7 @@ func newRedisBroadcastRemoteV8(
 
 	subConn := redisCli.PSubscribe(ctx, fmt.Sprintf("%s#%s#*", opts.Prefix, nsp))
 
-	rbc := &redisBroadcastRemoteV8{
+	rbc := &redisBroadcastRemoteV9{
 		pub:        redisCli,
 		sub:        subConn,
 		reqChannel: fmt.Sprintf("%s-request#%s", opts.Prefix, nsp),
@@ -50,17 +51,17 @@ func newRedisBroadcastRemoteV8(
 	return rbc, nil
 }
 
-type redisBroadcastRemoteV8 struct {
+type redisBroadcastRemoteV9 struct {
 	pub        *redis.Client
 	sub        *redis.PubSub
 	key        string
 	reqChannel string
 	resChannel string
 	requests   map[string]interface{}
-	local      *redisBroadcastLocal
+	local      *broadcastLocal
 }
 
-func (bc *redisBroadcastRemoteV8) lenRoom(room string) int {
+func (bc *redisBroadcastRemoteV9) lenRoom(room string) int {
 	req := roomLenRequest{
 		RequestType: roomLenReqType,
 		RequestID:   newV4UUID(),
@@ -93,19 +94,19 @@ func (bc *redisBroadcastRemoteV8) lenRoom(room string) int {
 	return req.connections
 }
 
-func (bc *redisBroadcastRemoteV8) send(room string, event string, args ...interface{}) {
+func (bc *redisBroadcastRemoteV9) send(room string, event string, args ...interface{}) {
 	// FIXME: review this concurrent
 	go bc.publishMessage(room, event, args...)
 }
-func (bc *redisBroadcastRemoteV8) sendAll(event string, args ...interface{}) {
+func (bc *redisBroadcastRemoteV9) sendAll(event string, args ...interface{}) {
 	// FIXME: review this concurrent
 	go bc.publishMessage("", event, args...)
 }
-func (bc *redisBroadcastRemoteV8) clear(room string) {
+func (bc *redisBroadcastRemoteV9) clear(room string) {
 	// FIXME: review this concurrent
 	go bc.publishClear(room)
 }
-func (bc *redisBroadcastRemoteV8) allRooms() []string {
+func (bc *redisBroadcastRemoteV9) allRooms() []string {
 	req := allRoomRequest{
 		RequestType: allRoomReqType,
 		RequestID:   newV4UUID(),
@@ -134,7 +135,7 @@ func (bc *redisBroadcastRemoteV8) allRooms() []string {
 	return rooms
 }
 
-func (bc *redisBroadcastRemoteV8) onMessage(channel string, msg []byte) error {
+func (bc *redisBroadcastRemoteV9) onMessage(channel string, msg []byte) error {
 	channelParts := strings.Split(channel, "#")
 	nsp := channelParts[len(channelParts)-2]
 	if bc.local.nsp != nsp {
@@ -175,7 +176,7 @@ func (bc *redisBroadcastRemoteV8) onMessage(channel string, msg []byte) error {
 }
 
 // Get the number of subscribers of a channel.
-func (bc *redisBroadcastRemoteV8) getNumSub(channel string) (int, error) {
+func (bc *redisBroadcastRemoteV9) getNumSub(channel string) (int, error) {
 	rs, err := bc.pub.PubSubNumSub(context.TODO(), channel).Result()
 	if err != nil {
 		return 0, err
@@ -188,7 +189,7 @@ func (bc *redisBroadcastRemoteV8) getNumSub(channel string) (int, error) {
 }
 
 // Handle request from redis channel.
-func (bc *redisBroadcastRemoteV8) onRequest(msg []byte) {
+func (bc *redisBroadcastRemoteV9) onRequest(msg []byte) {
 	var req map[string]string
 
 	if err := json.Unmarshal(msg, &req); err != nil {
@@ -223,7 +224,7 @@ func (bc *redisBroadcastRemoteV8) onRequest(msg []byte) {
 	}
 }
 
-func (bc *redisBroadcastRemoteV8) publish(channel string, msg interface{}) {
+func (bc *redisBroadcastRemoteV9) publish(channel string, msg interface{}) {
 	resJSON, err := json.Marshal(msg)
 	if err != nil {
 		return
@@ -236,7 +237,7 @@ func (bc *redisBroadcastRemoteV8) publish(channel string, msg interface{}) {
 }
 
 // Handle response from redis channel.
-func (bc *redisBroadcastRemoteV8) onResponse(msg []byte) {
+func (bc *redisBroadcastRemoteV9) onResponse(msg []byte) {
 	var res map[string]interface{}
 
 	err := json.Unmarshal(msg, &res)
@@ -285,7 +286,7 @@ func (bc *redisBroadcastRemoteV8) onResponse(msg []byte) {
 	}
 }
 
-func (bc *redisBroadcastRemoteV8) publishClear(room string) {
+func (bc *redisBroadcastRemoteV9) publishClear(room string) {
 	req := clearRoomRequest{
 		RequestType: clearRoomReqType,
 		RequestID:   newV4UUID(),
@@ -296,7 +297,7 @@ func (bc *redisBroadcastRemoteV8) publishClear(room string) {
 	bc.publish(bc.reqChannel, &req)
 }
 
-func (bc *redisBroadcastRemoteV8) publishMessage(room string, event string, args ...interface{}) {
+func (bc *redisBroadcastRemoteV9) publishMessage(room string, event string, args ...interface{}) {
 	opts := make([]interface{}, 2)
 	opts[0] = room
 	opts[1] = event
@@ -316,8 +317,8 @@ func (bc *redisBroadcastRemoteV8) publishMessage(room string, event string, args
 	}
 }
 
-func (bc *redisBroadcastRemoteV8) dispatch() {
-	ch := bc.sub.ChannelWithSubscriptions(context.TODO(), 100)
+func (bc *redisBroadcastRemoteV9) dispatch() {
+	ch := bc.sub.ChannelWithSubscriptions()
 	for rec := range ch {
 		switch m := rec.(type) {
 		case redis.Message:
@@ -342,4 +343,53 @@ func (bc *redisBroadcastRemoteV8) dispatch() {
 			return
 		}
 	}
+}
+
+// request types
+const (
+	roomLenReqType   = "0"
+	clearRoomReqType = "1"
+	allRoomReqType   = "2"
+)
+
+// request structs
+type roomLenRequest struct {
+	RequestType string
+	RequestID   string
+	Room        string
+	numSub      int        `json:"-"`
+	msgCount    int        `json:"-"`
+	connections int        `json:"-"`
+	mutex       sync.Mutex `json:"-"`
+	done        chan bool  `json:"-"`
+}
+
+type clearRoomRequest struct {
+	RequestType string
+	RequestID   string
+	Room        string
+	UUID        string
+}
+
+type allRoomRequest struct {
+	RequestType string
+	RequestID   string
+	rooms       map[string]bool
+	numSub      int
+	msgCount    int
+	mutex       sync.Mutex
+	done        chan bool
+}
+
+// response struct
+type roomLenResponse struct {
+	RequestType string
+	RequestID   string
+	Connections int
+}
+
+type allRoomResponse struct {
+	RequestType string
+	RequestID   string
+	Rooms       []string
 }

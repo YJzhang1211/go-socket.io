@@ -1,4 +1,4 @@
-package socketio
+package namespace
 
 import (
 	"errors"
@@ -10,9 +10,9 @@ var (
 	errFailedConnectNamespace = errors.New("failed connect to namespace without handler")
 )
 
-// common connection dispatch errors.
+// common connection gotAck errors.
 var (
-	errHandleDispatch = errors.New("handler dispatch error")
+	errHandleDispatch = errors.New("handler gotAck error")
 
 	errDecodeArgs = errors.New("decode args error")
 )

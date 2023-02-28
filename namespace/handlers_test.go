@@ -1,4 +1,4 @@
-package socketio
+package namespace
 
 import (
 	"fmt"

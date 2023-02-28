@@ -1,9 +1,10 @@
-package socketio
+package namespace
 
 import (
-	"fmt"
+	"context"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vchitai/go-socket.io/v4/parser"
@@ -16,8 +17,8 @@ type Namespace interface {
 	// connection, and share it between all handlers. The handlers
 	// are called in one goroutine, so no need to lock context if it
 	// only accessed in one connection.
-	Context() interface{}
-	SetContext(ctx interface{})
+	Context() context.Context
+	SetContext(ctx context.Context)
 
 	Namespace() string
 	Emit(eventName string, v ...interface{})
@@ -31,15 +32,16 @@ type Namespace interface {
 
 type namespaceConn struct {
 	*conn
-	broadcast Broadcast
+	broadcast Broadcaster
+	pkgID     atomic.Uint64
 
 	namespace string
-	context   interface{}
+	context   context.Context
 
 	ack sync.Map
 }
 
-func newNamespaceConn(conn *conn, namespace string, broadcast Broadcast) *namespaceConn {
+func newNamespaceConn(conn *conn, namespace string, broadcast Broadcaster) *namespaceConn {
 	return &namespaceConn{
 		conn:      conn,
 		namespace: namespace,
@@ -47,50 +49,16 @@ func newNamespaceConn(conn *conn, namespace string, broadcast Broadcast) *namesp
 	}
 }
 
-func (nc *namespaceConn) SetContext(ctx interface{}) {
+func (nc *namespaceConn) SetContext(ctx context.Context) {
 	nc.context = ctx
 }
 
-func (nc *namespaceConn) Context() interface{} {
+func (nc *namespaceConn) Context() context.Context {
 	return nc.context
 }
 
 func (nc *namespaceConn) Namespace() string {
 	return nc.namespace
-}
-
-func (nc *namespaceConn) Emit(eventName string, v ...interface{}) {
-	header := parser.Header{
-		Type: parser.Event,
-	}
-
-	if nc.namespace != aliasRootNamespace {
-		header.Namespace = nc.namespace
-	}
-
-	if l := len(v); l > 0 {
-		last := v[l-1]
-		lastV := reflect.TypeOf(last)
-
-		if lastV.Kind() == reflect.Func {
-			f := newAckFunc(last)
-
-			header.ID = nc.conn.nextID()
-			header.NeedAck = true
-
-			nc.ack.Store(header.ID, f)
-			v = v[:l-1]
-		}
-	}
-
-	args := make([]reflect.Value, len(v)+1)
-	args[0] = reflect.ValueOf(eventName)
-
-	for i := 1; i < len(args); i++ {
-		args[i] = reflect.ValueOf(v[i-1])
-	}
-
-	nc.conn.write(header, args...)
 }
 
 func (nc *namespaceConn) Join(room string) {
@@ -110,6 +78,9 @@ func (nc *namespaceConn) Rooms() []string {
 }
 
 func (nc *namespaceConn) Refuse(err error) error {
+	if err == nil {
+		return nil
+	}
 	nc.writeWithArgs(parser.Header{
 		Type:      parser.Error,
 		Namespace: nc.namespace,
@@ -123,29 +94,41 @@ func (nc *namespaceConn) Refuse(err error) error {
 	return nil
 }
 
-func (nc *namespaceConn) dispatch(header parser.Header) {
-	if header.Type != parser.Ack {
-		return
+func (nc *namespaceConn) nextPkgID() uint64 {
+	return nc.pkgID.Add(1)
+}
+
+func (nc *namespaceConn) Emit(eventName string, v ...interface{}) {
+	header := parser.Header{
+		Type: parser.Event,
 	}
 
-	rawFunc, ok := nc.ack.Load(header.ID)
-	if ok {
-		f, ok := rawFunc.(*funcHandler)
-		if !ok {
-			nc.conn.onError(nc.namespace, fmt.Errorf("incorrect data stored for header %d", header.ID))
-			return
-		}
+	if nc.namespace != aliasRootNamespace {
+		header.Namespace = nc.namespace
+	}
 
-		nc.ack.Delete(header.ID)
+	// if provide an ack function, will register for callback
+	if l := len(v); l > 0 {
+		last := v[l-1]
+		lastV := reflect.TypeOf(last)
 
-		args, err := nc.conn.parseArgs(f.argTypes)
-		if err != nil {
-			nc.conn.onError(nc.namespace, err)
-			return
-		}
-		if _, err := f.Call(args); err != nil {
-			nc.conn.onError(nc.namespace, err)
-			return
+		if lastV.Kind() == reflect.Func {
+			f := newAckFunc(last)
+
+			header.ID = nc.nextPkgID()
+			header.NeedAck = true
+
+			nc.ack.Store(header.ID, f)
+			v = v[:l-1]
 		}
 	}
+
+	args := make([]reflect.Value, len(v)+1)
+	args[0] = reflect.ValueOf(eventName)
+
+	for i := 1; i < len(args); i++ {
+		args[i] = reflect.ValueOf(v[i-1])
+	}
+
+	nc.conn.write(header, args...)
 }

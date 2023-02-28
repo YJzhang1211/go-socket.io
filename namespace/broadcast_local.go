@@ -1,26 +1,26 @@
-package socketio
+package namespace
 
 import (
 	"sync"
 )
 
-func newRedisBroadcastLocal(nsp string) *redisBroadcastLocal {
+func newBroadcastLocal(nsp string) *broadcastLocal {
 	uid := newV4UUID()
-	return &redisBroadcastLocal{
+	return &broadcastLocal{
 		nsp:       nsp,
 		uid:       uid,
 		roomsSync: newRoomMap(),
 	}
 }
 
-type redisBroadcastLocal struct {
+type broadcastLocal struct {
 	nsp string
 	uid string
 
 	roomsSync *roomMap
 }
 
-func (bc *redisBroadcastLocal) forEach(room string, f EachFunc) {
+func (bc *broadcastLocal) forEach(room string, f EachFunc) {
 	occupants, ok := bc.getOccupants(room)
 	if !ok {
 		return
@@ -33,27 +33,27 @@ func (bc *redisBroadcastLocal) forEach(room string, f EachFunc) {
 }
 
 // getOccupants return all occupants of a room
-func (bc *redisBroadcastLocal) getOccupants(room string) (*connMap, bool) {
+func (bc *broadcastLocal) getOccupants(room string) (*connMap, bool) {
 	return bc.roomsSync.getConnections(room)
 }
 
-func (bc *redisBroadcastLocal) clear(room string) {
+func (bc *broadcastLocal) clear(room string) {
 	bc.roomsSync.delete(room)
 }
 
-func (bc *redisBroadcastLocal) join(room string, conn Conn) {
+func (bc *broadcastLocal) join(room string, conn Conn) {
 	bc.roomsSync.join(room, conn)
 }
 
-func (bc *redisBroadcastLocal) leaveAll(conn Conn) {
+func (bc *broadcastLocal) leaveAll(conn Conn) {
 	bc.roomsSync.leaveAll(conn)
 }
 
-func (bc *redisBroadcastLocal) leave(room string, conn Conn) {
+func (bc *broadcastLocal) leave(room string, conn Conn) {
 	bc.roomsSync.leave(room, conn)
 }
 
-func (bc *redisBroadcastLocal) send(room string, event string, args ...interface{}) {
+func (bc *broadcastLocal) send(room string, event string, args ...interface{}) {
 	conns, ok := bc.getOccupants(room)
 	if !ok {
 		return
@@ -64,7 +64,7 @@ func (bc *redisBroadcastLocal) send(room string, event string, args ...interface
 	})
 }
 
-func (bc *redisBroadcastLocal) sendAll(event string, args ...interface{}) {
+func (bc *broadcastLocal) sendAll(event string, args ...interface{}) {
 	bc.roomsSync.forEach(func(_ string, conn *connMap) bool {
 		conn.forEach(func(_ string, conn Conn) bool {
 			conn.Emit(event, args...)
@@ -74,7 +74,7 @@ func (bc *redisBroadcastLocal) sendAll(event string, args ...interface{}) {
 	})
 }
 
-func (bc *redisBroadcastLocal) allRooms() []string {
+func (bc *broadcastLocal) allRooms() []string {
 	rooms := make([]string, 0)
 	bc.roomsSync.forEach(func(room string, conn *connMap) bool {
 		rooms = append(rooms, room)
@@ -83,7 +83,7 @@ func (bc *redisBroadcastLocal) allRooms() []string {
 	return rooms
 }
 
-func (bc *redisBroadcastLocal) lenRoom(roomID string) int {
+func (bc *broadcastLocal) lenRoom(roomID string) int {
 	var res int
 	bc.roomsSync.forEach(func(room string, conn *connMap) bool {
 		if room == roomID {
@@ -94,7 +94,7 @@ func (bc *redisBroadcastLocal) lenRoom(roomID string) int {
 	return res
 }
 
-func (bc *redisBroadcastLocal) getRoomsByConn(connection Conn) []string {
+func (bc *broadcastLocal) getRoomsByConn(connection Conn) []string {
 	var rooms []string
 	bc.roomsSync.forEach(func(room string, conn *connMap) bool {
 		conn.forEach(func(connID string, conn Conn) bool {

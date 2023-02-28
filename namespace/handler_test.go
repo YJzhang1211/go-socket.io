@@ -1,4 +1,4 @@
-package socketio
+package namespace
 
 import (
 	"reflect"
@@ -14,7 +14,7 @@ func TestNamespaceHandler(t *testing.T) {
 	should := assert.New(t)
 	must := require.New(t)
 
-	h := newNamespaceHandler(t.Name(), nil)
+	h := NewHandler(t.Name(), nil)
 
 	onConnectCalled := false
 	h.OnConnect(func(c Conn, req map[string]interface{}) error {
@@ -103,7 +103,7 @@ func TestNamespaceHandlerEvent(t *testing.T) {
 			should := assert.New(t)
 			must := require.New(t)
 
-			h := newNamespaceHandler(test.name, nil)
+			h := NewHandler(test.name, nil)
 			for i, e := range test.events {
 				h.OnEvent(e, test.handlers[i])
 			}
