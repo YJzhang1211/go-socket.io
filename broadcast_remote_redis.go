@@ -321,7 +321,7 @@ func (bc *redisBroadcastRemoteV9) dispatch() {
 	ch := bc.sub.ChannelWithSubscriptions()
 	for rec := range ch {
 		switch m := rec.(type) {
-		case redis.Message:
+		case *redis.Message:
 			switch m.Channel {
 			case bc.reqChannel:
 				bc.onRequest([]byte(m.Payload))
@@ -335,7 +335,7 @@ func (bc *redisBroadcastRemoteV9) dispatch() {
 					return
 				}
 			}
-		case redis.Subscription:
+		case *redis.Subscription:
 			if m.Count == 0 {
 				return
 			}
