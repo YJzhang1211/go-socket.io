@@ -1,4 +1,4 @@
-package namespace
+package socketio
 
 import "github.com/google/uuid"
 

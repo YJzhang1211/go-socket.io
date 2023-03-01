@@ -1,4 +1,4 @@
-package namespace
+package socketio
 
 // EachFunc typed for each callback function
 type EachFunc func(Conn)

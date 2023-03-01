@@ -1,4 +1,4 @@
-package namespace
+package socketio
 
 // RedisAdapterConfig is configuration to create new adapter
 type RedisAdapterConfig struct {

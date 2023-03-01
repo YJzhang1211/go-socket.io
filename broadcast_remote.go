@@ -1,4 +1,4 @@
-package namespace
+package socketio
 
 func newBroadcastRemote(nsp string, opts *RedisAdapterConfig) (*broadcastRemote, error) {
 	rbcLocal := newBroadcastLocal(nsp)

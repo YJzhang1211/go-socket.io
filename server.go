@@ -4,34 +4,27 @@ import (
 	"net/http"
 
 	"github.com/vchitai/go-socket.io/v4/engineio"
-	"github.com/vchitai/go-socket.io/v4/namespace"
-)
-
-// namespace
-const (
-	aliasRootNamespace = "/"
-	rootNamespace      = ""
 )
 
 // Server is a go-socket.io server.
 type Server struct {
 	engine *engineio.Server
 
-	nspHandlers  *namespace.Handlers
-	redisAdapter *namespace.RedisAdapterConfig
+	nspHandlers  *Handlers
+	redisAdapter *RedisAdapterConfig
 }
 
 // NewServer returns a server.
 func NewServer(opts *engineio.Options) *Server {
 	return &Server{
-		nspHandlers: namespace.NewHandlers(),
+		nspHandlers: NewHandlers(),
 		engine:      engineio.NewServer(opts),
 	}
 }
 
 // Adapter sets redis broadcast adapter.
-func (s *Server) Adapter(opts *namespace.RedisAdapterConfig) (bool, error) {
-	s.redisAdapter = namespace.GetOptions(opts)
+func (s *Server) Adapter(opts *RedisAdapterConfig) (bool, error) {
+	s.redisAdapter = GetOptions(opts)
 
 	return true, nil
 }
@@ -46,25 +39,25 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.engine.ServeHTTP(w, r)
 }
 
-// OnConnect set a handler function f to handle open event for namespace.
-func (s *Server) OnConnect(namespace string, f namespace.OnConnectHandler) {
+// OnConnect set a handler function f to handle open event for
+func (s *Server) OnConnect(namespace string, f OnConnectHandler) {
 	h := s.getOrCreateNamespaceHandler(namespace)
 	h.OnConnect(f)
 }
 
-// OnDisconnect set a handler function f to handle disconnect event for namespace.
-func (s *Server) OnDisconnect(namespace string, f namespace.OnDisconnectHandler) {
+// OnDisconnect set a handler function f to handle disconnect event for
+func (s *Server) OnDisconnect(namespace string, f OnDisconnectHandler) {
 	h := s.getOrCreateNamespaceHandler(namespace)
 	h.OnDisconnect(f)
 }
 
-// OnError set a handler function f to handle error for namespace.
-func (s *Server) OnError(namespace string, f namespace.OnErrorHandler) {
+// OnError set a handler function f to handle error for
+func (s *Server) OnError(namespace string, f OnErrorHandler) {
 	h := s.getOrCreateNamespaceHandler(namespace)
 	h.OnError(f)
 }
 
-// OnEvent set a handler function f to handle event for namespace.
+// OnEvent set a handler function f to handle event for
 func (s *Server) OnEvent(namespace string, event string, f interface{}) {
 	h := s.getOrCreateNamespaceHandler(namespace)
 	h.OnEvent(event, f)
@@ -79,7 +72,7 @@ func (s *Server) Serve() error {
 			return err
 		}
 
-		c := namespace.NewConn(conn, s.nspHandlers)
+		c := NewConn(conn, s.nspHandlers)
 		go func() {
 			defer func() {
 				_ = c.Close()
@@ -91,19 +84,19 @@ func (s *Server) Serve() error {
 }
 
 // JoinRoom joins given connection to the room.
-func (s *Server) JoinRoom(namespace string, room string, conn namespace.Conn) bool {
+func (s *Server) JoinRoom(namespace string, room string, conn Conn) bool {
 	nspHandler := s.getNamespaceHandler(namespace)
 	return nspHandler.Join(room, conn)
 }
 
 // LeaveRoom leaves given connection from the room.
-func (s *Server) LeaveRoom(namespace string, room string, conn namespace.Conn) bool {
+func (s *Server) LeaveRoom(namespace string, room string, conn Conn) bool {
 	nspHandler := s.getNamespaceHandler(namespace)
 	return nspHandler.Leave(room, conn)
 }
 
 // LeaveAllRooms leaves the given connection from all rooms.
-func (s *Server) LeaveAllRooms(namespace string, conn namespace.Conn) bool {
+func (s *Server) LeaveAllRooms(namespace string, conn Conn) bool {
 	nspHandler := s.getNamespaceHandler(namespace)
 	return nspHandler.LeaveAll(conn)
 }
@@ -120,7 +113,7 @@ func (s *Server) BroadcastToRoom(namespace string, room, event string, args ...i
 	return nspHandler.Send(room, event, args...)
 }
 
-// BroadcastToNamespace broadcasts given event & args to all the connections in the same namespace.
+// BroadcastToNamespace broadcasts given event & args to all the connections in the same
 func (s *Server) BroadcastToNamespace(namespace string, event string, args ...interface{}) bool {
 	nspHandler := s.getNamespaceHandler(namespace)
 	return nspHandler.SendAll(event, args...)
@@ -139,7 +132,7 @@ func (s *Server) Rooms(namespace string) []string {
 }
 
 // ForEach sends data by DataFunc, if room does not exit sends anything.
-func (s *Server) ForEach(namespace string, room string, f namespace.EachFunc) bool {
+func (s *Server) ForEach(namespace string, room string, f EachFunc) bool {
 	nspHandler := s.getNamespaceHandler(namespace)
 	return nspHandler.ForEach(room, f)
 }
@@ -149,7 +142,7 @@ func (s *Server) Count() int {
 	return s.engine.Count()
 }
 
-func (s *Server) getOrCreateNamespaceHandler(nsp string) *namespace.Handler {
+func (s *Server) getOrCreateNamespaceHandler(nsp string) *Handler {
 	h := s.getNamespaceHandler(nsp)
 	if h == nil {
 		h = s.createNamespaceHandler(nsp)
@@ -158,18 +151,18 @@ func (s *Server) getOrCreateNamespaceHandler(nsp string) *namespace.Handler {
 	return h
 }
 
-func (s *Server) createNamespaceHandler(nsp string) *namespace.Handler {
+func (s *Server) createNamespaceHandler(nsp string) *Handler {
 	if nsp == aliasRootNamespace {
 		nsp = rootNamespace
 	}
 
-	handler := namespace.NewHandler(nsp, s.redisAdapter)
+	handler := NewHandler(nsp, s.redisAdapter)
 	s.nspHandlers.Set(nsp, handler)
 
 	return handler
 }
 
-func (s *Server) getNamespaceHandler(nsp string) *namespace.Handler {
+func (s *Server) getNamespaceHandler(nsp string) *Handler {
 	if nsp == aliasRootNamespace {
 		nsp = rootNamespace
 	}
