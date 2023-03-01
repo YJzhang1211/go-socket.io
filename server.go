@@ -79,6 +79,7 @@ func (s *Server) Serve() error {
 				s.engine.Remove(c.ID())
 			}()
 			c.Serve()
+			<-c.quitChan
 		}()
 	}
 }
