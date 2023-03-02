@@ -93,12 +93,12 @@ func (c *conn) serveError() {
 			return
 		case err := <-c.errorChan:
 			// emit the error detail back to client
-			c.writeWithArgs(parser.Header{
-				Type: parser.Error,
-			}, reflect.ValueOf(map[string]interface{}{
-				"message": err.Error(),
-				"data":    nil,
-			}))
+			//c.writeWithArgs(parser.Header{
+			//	Type: parser.Error,
+			//}, reflect.ValueOf(map[string]interface{}{
+			//	"message": err.Error(),
+			//	"data":    nil,
+			//}))
 
 			// dispatch the error message to handler
 			var errMsg *errorMessage
