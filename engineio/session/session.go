@@ -28,6 +28,9 @@ type Session struct {
 
 	context interface{}
 
+	readDeadline *time.Timer
+	readDdlLock  sync.Mutex
+
 	upgradeLocker sync.RWMutex
 	quitChan      chan bool
 	quitOnce      sync.Once
@@ -52,6 +55,27 @@ func New(conn transport.Conn, sid, transport string, params transport.ConnParame
 	go ses.doHealthCheck()
 
 	return ses, nil
+}
+
+func (s *Session) setPongReadline(ddl time.Time) {
+	s.readDdlLock.Lock()
+	defer s.readDdlLock.Unlock()
+	if s.readDeadline == nil {
+		// will close in the future, if not release in time
+		s.readDeadline = time.AfterFunc(time.Until(ddl), func() {
+			_ = s.Close()
+		})
+	}
+}
+
+func (s *Session) releasePongReadline() {
+	s.readDdlLock.Lock()
+	defer s.readDdlLock.Unlock()
+	if s.readDeadline != nil {
+		// stop the closing
+		s.readDeadline.Stop()
+		s.readDeadline = nil
+	}
 }
 
 func (s *Session) SetContext(v interface{}) {
@@ -93,6 +117,8 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 			_ = s.Close()
 			return 0, nil, err
 		}
+
+		s.releasePongReadline()
 
 		// if the packet is message type, delegate for above
 		if pt == packet.MESSAGE {
@@ -227,6 +253,8 @@ func (s *Session) doHealthCheck() {
 			return
 		case <-time.After(s.params.PingInterval):
 		}
+
+		s.setPongReadline(time.Now().Add(s.params.PingInterval + s.params.PingTimeout))
 
 		s.upgradeLocker.RLock()
 		conn := s.conn
