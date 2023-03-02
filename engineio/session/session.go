@@ -42,8 +42,9 @@ func New(conn transport.Conn, sid, transport string, params transport.ConnParame
 		params:    params,
 	}
 
-	if err := ses.setDeadline(); err != nil {
-		ses.Close()
+	if err := ses.resetDeadlines(); err != nil {
+		// If we cannot reset the deadlines, close the session
+		_ = ses.Close()
 		return nil, err
 	}
 
@@ -89,52 +90,61 @@ func (s *Session) NextReader() (FrameType, io.ReadCloser, error) {
 	for {
 		ft, pt, r, err := s.nextReader()
 		if err != nil {
-			s.Close()
+			_ = s.Close()
 			return 0, nil, err
 		}
 
-		switch pt {
-		case packet.PONG:
-			// Pong message received, skip to next
-			_ = r.Close()
-			_ = s.conn.SetReadDeadline(time.Now().Add(s.params.PingTimeout))
-
-		case packet.PING:
-			// Respond to a ping with a pong.
-			err := func() error {
-				w, err := s.nextWriter(ft, packet.PONG)
-				if err != nil {
-					return err
-				}
-				// echo
-				_, err = io.Copy(w, r)
-				w.Close() // unlocks the wrapped connection's FrameWriter
-				r.Close() // unlocks the wrapped connection's FrameReader
-				return err
-			}()
-			if err != nil {
-				s.Close()
-				return 0, nil, err
-			}
-			// Read another frame.
-			if err := s.setDeadline(); err != nil {
-				s.Close()
-				return 0, nil, err
-			}
-
-		case packet.CLOSE:
-			r.Close() // unlocks the wrapped connection's FrameReader
-			s.Close()
-			return 0, nil, io.EOF
-
-		case packet.MESSAGE:
+		// if the packet is message type, delegate for above
+		if pt == packet.MESSAGE {
 			// Caller must Close the ReadCloser to unlock the connection's
 			// FrameReader when finished reading.
 			return FrameType(ft), r, nil
+		}
 
-		default:
-			// Unknown packet type. Close reader and try again.
-			r.Close()
+		err = func() error {
+			defer func() {
+				// Close the current reader
+				_ = r.Close()
+			}()
+
+			switch pt {
+			case packet.PING:
+				// Respond to a ping with a pong.
+				err := func() error {
+					w, err := s.nextWriter(ft, packet.PONG)
+					if err != nil {
+						return err
+					}
+					defer func() {
+						_ = w.Close() // unlocks the wrapped connection's FrameWriter
+					}()
+
+					// echo the pong
+					_, err = io.Copy(w, r)
+					return err
+				}()
+
+				if err != nil {
+					// If we cannot pong back close the connection
+					_ = s.Close()
+					return err
+				}
+
+			case packet.CLOSE:
+				_ = s.Close()
+				return io.EOF
+
+			case packet.PONG:
+
+			case packet.MESSAGE:
+
+			default:
+				// Unknown packet type. Close reader and try again.
+			}
+			return nil
+		}()
+		if err != nil {
+			return 0, nil, err
 		}
 	}
 }
@@ -181,18 +191,18 @@ func (s *Session) Upgrade(transport string, conn transport.Conn) {
 func (s *Session) InitSession() error {
 	w, err := s.nextWriter(frame.String, packet.OPEN)
 	if err != nil {
-		s.Close()
+		_ = s.Close()
 		return err
 	}
 
 	if _, err := s.params.WriteTo(w); err != nil {
-		w.Close()
-		s.Close()
+		_ = w.Close()
+		_ = s.Close()
 		return err
 	}
 
 	if err := w.Close(); err != nil {
-		s.Close()
+		_ = s.Close()
 		return err
 	}
 
@@ -228,13 +238,14 @@ func (s *Session) doHealthCheck() {
 			return
 		}
 
-		if err := w.Close(); err != nil {
-			ll.Error(err, "failed to close ping writer")
+		if err = conn.SetWriteDeadline(time.Now().Add(s.params.PingInterval + s.params.PingTimeout)); err != nil {
+			ll.Error(err, "failed to set writer's deadline")
 			return
 		}
 
-		if err = conn.SetWriteDeadline(time.Now().Add(s.params.PingInterval + s.params.PingTimeout)); err != nil {
-			ll.Error(err, "failed to set writer's deadline")
+		if err := w.Close(); err != nil {
+			ll.Error(err, "failed to close ping writer")
+			return
 		}
 	}
 }
@@ -244,6 +255,9 @@ func (s *Session) nextReader() (frame.Type, packet.Type, io.ReadCloser, error) {
 		s.upgradeLocker.RLock()
 		conn := s.conn
 		s.upgradeLocker.RUnlock()
+
+		// Expect the next read will come in the ping timeout
+		_ = conn.SetReadDeadline(time.Now().Add(s.params.PingTimeout))
 
 		ft, pt, r, err := conn.NextReader()
 		if err != nil {
@@ -269,13 +283,16 @@ func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, err
 			}
 			return nil, err
 		}
+		// Set the deadline for writing operation
+		_ = conn.SetWriteDeadline(time.Now().Add(s.params.PingTimeout))
+
 		// Caller must Close the WriteCloser to unlock the connection's
 		// FrameWriter when finished writing.
 		return w, nil
 	}
 }
 
-func (s *Session) setDeadline() error {
+func (s *Session) resetDeadlines() error {
 	s.upgradeLocker.RLock()
 	defer s.upgradeLocker.RUnlock()
 
@@ -293,50 +310,52 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	// Read a ping from the client.
 	err := conn.SetReadDeadline(time.Now().Add(s.params.PingTimeout))
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return
 	}
 
 	ft, pt, r, err := conn.NextReader()
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return
 	}
 	if pt != packet.PING {
-		r.Close()
-		conn.Close()
+		_ = r.Close()
+		_ = conn.Close()
 		return
 	}
+
 	// Wait to close the reader until after data is read and echoed in the reply.
-
 	// Sent a pong in reply.
-	err = conn.SetWriteDeadline(time.Now().Add(s.params.PingTimeout))
-	if err != nil {
-		r.Close()
-		conn.Close()
-		return
-	}
-
 	w, err := conn.NextWriter(ft, packet.PONG)
 	if err != nil {
-		r.Close()
-		conn.Close()
+		_ = r.Close()
+		_ = conn.Close()
 		return
 	}
+
+	err = conn.SetWriteDeadline(time.Now().Add(s.params.PingTimeout))
+	if err != nil {
+		_ = w.Close()
+		_ = r.Close()
+		_ = conn.Close()
+		return
+	}
+
 	// echo
 	if _, err = io.Copy(w, r); err != nil {
-		w.Close()
-		r.Close()
-		conn.Close()
+		_ = w.Close()
+		_ = r.Close()
+		_ = conn.Close()
 		return
 	}
 	if err = r.Close(); err != nil {
-		w.Close()
-		conn.Close()
+		_ = w.Close()
+		_ = conn.Close()
 		return
 	}
 	if err = w.Close(); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return
 	}
 
@@ -347,11 +366,12 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 
 	p, ok := old.(Pauser)
 	if !ok {
-		// old transport doesn't support upgrading
-		conn.Close()
+		// old transport doesn't support upgrading, close it
+		_ = conn.Close()
 		return
 	}
 
+	// if support upgrading, pause it
 	p.Pause()
 
 	// Prepare to resume the connection if upgrade fails.
@@ -362,20 +382,26 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 	}()
 
 	// Check for upgrade packet from the client.
+	err = conn.SetReadDeadline(time.Now().Add(s.params.PingTimeout))
+	if err != nil {
+		_ = conn.Close()
+		return
+	}
+
 	_, pt, r, err = conn.NextReader()
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return
 	}
 
 	if pt != packet.UPGRADE {
-		r.Close()
-		conn.Close()
+		_ = r.Close()
+		_ = conn.Close()
 		return
 	}
 
 	if err = r.Close(); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return
 	}
 
@@ -387,5 +413,5 @@ func (s *Session) upgrading(t string, conn transport.Conn) {
 
 	p = nil
 
-	old.Close()
+	_ = old.Close()
 }
