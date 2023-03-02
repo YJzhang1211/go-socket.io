@@ -283,6 +283,7 @@ func (s *Session) nextWriter(ft frame.Type, pt packet.Type) (io.WriteCloser, err
 			}
 			return nil, err
 		}
+
 		// Set the deadline for writing operation
 		_ = conn.SetWriteDeadline(time.Now().Add(s.params.PingTimeout))
 
