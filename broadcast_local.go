@@ -59,7 +59,8 @@ func (bc *broadcastLocal) send(room string, event string, args ...interface{}) {
 		return
 	}
 	conns.forEach(func(_ string, conn Conn) bool {
-		conn.Emit(event, args...)
+		// TODO: review this concurrent
+		go conn.Emit(event, args...)
 		return true
 	})
 }
@@ -67,7 +68,8 @@ func (bc *broadcastLocal) send(room string, event string, args ...interface{}) {
 func (bc *broadcastLocal) sendAll(event string, args ...interface{}) {
 	bc.roomsSync.forEach(func(_ string, conn *connMap) bool {
 		conn.forEach(func(_ string, conn Conn) bool {
-			conn.Emit(event, args...)
+			// TODO: review this concurrent
+			go conn.Emit(event, args...)
 			return true
 		})
 		return true
