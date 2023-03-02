@@ -21,4 +21,5 @@ type Conn interface {
 	RemoteHeader() http.Header
 	SetContext(v interface{})
 	Context() interface{}
+	Done() <-chan struct{}
 }

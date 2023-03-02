@@ -35,6 +35,10 @@ type client struct {
 	closeOnce sync.Once
 }
 
+func (c *client) Done() <-chan struct{} {
+	return c.close
+}
+
 func (c *client) SetContext(v interface{}) {
 	c.context = v
 }

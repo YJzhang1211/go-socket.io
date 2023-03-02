@@ -84,6 +84,8 @@ func (c *conn) Serve() {
 	go c.serveError()
 	go c.serveWrite()
 	go c.serveRead()
+	<-c.Conn.Done()
+	_ = c.Close()
 }
 
 func (c *conn) serveError() {

@@ -32,8 +32,12 @@ type Session struct {
 	readDdlLock  sync.Mutex
 
 	upgradeLocker sync.RWMutex
-	quitChan      chan bool
+	quitChan      chan struct{}
 	quitOnce      sync.Once
+}
+
+func (s *Session) Done() <-chan struct{} {
+	return s.quitChan
 }
 
 func New(conn transport.Conn, sid, transport string, params transport.ConnParameters) (*Session, error) {
@@ -51,7 +55,7 @@ func New(conn transport.Conn, sid, transport string, params transport.ConnParame
 		return nil, err
 	}
 
-	ses.quitChan = make(chan bool)
+	ses.quitChan = make(chan struct{})
 	go ses.doHealthCheck()
 
 	return ses, nil

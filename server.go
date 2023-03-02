@@ -72,15 +72,13 @@ func (s *Server) Serve() error {
 			return err
 		}
 
-		c := NewConn(conn, s.nspHandlers)
-		go func() {
+		go func(conn engineio.Conn) {
 			defer func() {
-				_ = c.Close()
-				s.engine.Remove(c.ID())
+				s.engine.Remove(conn.ID())
 			}()
+			c := NewConn(conn, s.nspHandlers)
 			c.Serve()
-			<-c.quitChan
-		}()
+		}(conn)
 	}
 }
 
