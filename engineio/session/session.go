@@ -240,11 +240,14 @@ func (s *Session) doHealthCheck() {
 
 		if err = conn.SetWriteDeadline(time.Now().Add(s.params.PingInterval + s.params.PingTimeout)); err != nil {
 			ll.Error(err, "failed to set writer's deadline")
+			_ = w.Close()
+			_ = conn.Close()
 			return
 		}
 
 		if err := w.Close(); err != nil {
 			ll.Error(err, "failed to close ping writer")
+			_ = conn.Close()
 			return
 		}
 	}
