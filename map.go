@@ -29,12 +29,19 @@ func (rm *roomMap) join(room string, conn Conn) {
 	cm.join(conn)
 }
 
+func (rm *roomMap) listRoomID() []string {
+	rm.mutex.RLock()
+	defer rm.mutex.RUnlock()
+
+	return getKeysOfMap(rm.data)
+}
+
 // leaveAll remove the connection from all rooms
 func (rm *roomMap) leaveAll(conn Conn) {
-	iterating := rm.iterableData()
+	roomIDList := rm.listRoomID()
 
-	for room := range iterating {
-		cm := rm.data[room]
+	for _, roomID := range roomIDList {
+		cm := rm.data[roomID]
 		if cm != nil {
 			cm.leave(conn)
 		}
@@ -76,11 +83,15 @@ func (rm *roomMap) getConnections(room string) (*connMap, bool) {
 }
 
 // forEach is use for iterate for read purpose only
-func (rm *roomMap) forEach(h func(room string, conn *connMap) bool) {
-	iterating := rm.iterableData()
+func (rm *roomMap) forEach(h func(room string, cm *connMap) bool) {
+	roomIDList := rm.listRoomID()
 
-	for room := range iterating {
-		if !h(room, iterating[room]) {
+	for _, roomID := range roomIDList {
+		cm := rm.data[roomID]
+		if cm == nil {
+			continue
+		}
+		if !h(roomID, cm) {
 			break
 		}
 	}
@@ -123,13 +134,24 @@ func (cm *connMap) leave(conn Conn) {
 
 // forEach is use for iterate for read purpose only
 func (cm *connMap) forEach(h func(connID string, conn Conn) bool) {
-	iterating := cm.iterableData()
+	connIDList := cm.listConnID()
 
-	for connID := range iterating {
-		if !h(connID, iterating[connID]) {
+	for _, connID := range connIDList {
+		c := cm.data[connID]
+		if c == nil {
+			continue
+		}
+		if !h(connID, c) {
 			break
 		}
 	}
+}
+
+func (cm *connMap) listConnID() []string {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	return getKeysOfMap(cm.data)
 }
 
 // iterableData return a version of data that is suitable for handle concurrent iteration
@@ -152,6 +174,14 @@ func copyMap[K comparable, V any](m map[K]V) map[K]V {
 	res := make(map[K]V, len(m))
 	for k, v := range m {
 		res[k] = v
+	}
+	return res
+}
+
+func getKeysOfMap[K comparable, V any](m map[K]V) []K {
+	res := make([]K, len(m))
+	for k := range m {
+		res = append(res, k)
 	}
 	return res
 }
