@@ -34,7 +34,10 @@ func (rm *roomMap) leaveAll(conn Conn) {
 	iterating := rm.iterableData()
 
 	for room := range iterating {
-		iterating[room].leave(conn)
+		cm := rm.data[room]
+		if cm != nil {
+			cm.leave(conn)
+		}
 	}
 }
 

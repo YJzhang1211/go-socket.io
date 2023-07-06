@@ -83,7 +83,7 @@ func (bc *broadcastLocal) allRooms() []string {
 
 func (bc *broadcastLocal) lenRoom(roomID string) int {
 	var res int
-	bc.roomsSync.forEach(func(room string, conn *connMap) bool {
+	bc.roomsSync.forEach(func(room string, _ *connMap) bool {
 		if room == roomID {
 			res++
 		}
@@ -94,8 +94,8 @@ func (bc *broadcastLocal) lenRoom(roomID string) int {
 
 func (bc *broadcastLocal) getRoomsByConn(connection Conn) []string {
 	var rooms []string
-	bc.roomsSync.forEach(func(room string, conn *connMap) bool {
-		conn.forEach(func(connID string, conn Conn) bool {
+	bc.roomsSync.forEach(func(room string, cm *connMap) bool {
+		cm.forEach(func(connID string, _ Conn) bool {
 			if connection.ID() == connID {
 				rooms = append(rooms, room)
 			}
