@@ -41,10 +41,7 @@ func (rm *roomMap) leaveAll(conn Conn) {
 	roomIDList := rm.listRoomID()
 
 	for _, roomID := range roomIDList {
-		cm := rm.data[roomID]
-		if cm != nil {
-			cm.leave(conn)
-		}
+		rm.leave(roomID, conn)
 	}
 }
 
@@ -87,8 +84,8 @@ func (rm *roomMap) forEach(h func(room string, cm *connMap) bool) {
 	roomIDList := rm.listRoomID()
 
 	for _, roomID := range roomIDList {
-		cm := rm.data[roomID]
-		if cm == nil {
+		cm, ok := rm.getConnections(roomID)
+		if !ok || cm == nil {
 			continue
 		}
 		if !h(roomID, cm) {
@@ -137,14 +134,23 @@ func (cm *connMap) forEach(h func(connID string, conn Conn) bool) {
 	connIDList := cm.listConnID()
 
 	for _, connID := range connIDList {
-		c := cm.data[connID]
-		if c == nil {
+		c, ok := cm.getConn(connID)
+		if !ok || c == nil {
 			continue
 		}
 		if !h(connID, c) {
 			break
 		}
 	}
+}
+
+// getConn return Conn
+func (cm *connMap) getConn(connID string) (Conn, bool) {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	c, ok := cm.data[connID]
+	return c, ok
 }
 
 func (cm *connMap) listConnID() []string {
