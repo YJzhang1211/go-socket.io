@@ -12,6 +12,8 @@ Current this library supports 1.4 version of the Socket.IO client. It supports r
 **Help wanted** This project is looking for contributors to help fix bugs and implement new features. Please
 check [Issue 192](https://github.com/vchitai/go-socket.io/v4/issues/192). All help is much appreciated.
 
+**Disclaimer** This fork is tended for making it worked with the v4 version of socketio protocol
+
 ## Contents
 
 - [Install](#install)
@@ -70,3 +72,7 @@ can be used without the socket.io-implementation. Please check the README.md in 
 ## License
 
 The 3-clause BSD License - see [LICENSE](https://opensource.org/licenses/BSD-3-Clause) for more details
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=vchitai/go-socket.io&type=Date)](https://star-history.com/#vchitai/go-socket.io&Date)
